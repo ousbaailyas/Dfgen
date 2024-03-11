@@ -1,0 +1,642 @@
+#!/bin/bash
+
+FAIL="\033[38;5;196m"
+SUCC="\033[38;5;49m"
+INFO="\033[38;5;33m"
+WARN="\033[38;5;208m"
+QUET="\033[38;5;99m"
+GRAY="\033[38;5;8m"
+RC="\033[0m"
+
+version=1
+
+# Function to display colored messages
+print_message() {
+    local level="$1"
+    local message="$2"
+    local user_input="$3"
+    local color=""
+
+    case "$level" in
+        QUET|FAIL|SUCC|INFO|WARN) color="${!level}" ;;
+        *) echo -e "Invalid log level: $level"; return 1 ;;
+    esac
+
+    if [ -n "$user_input" ]; then
+        printf "[${color}${level}$RC]  ${message}"
+        read -r "$user_input"
+    else
+        echo -e "[${color}${level}$RC]  ${message}"
+    fi
+}
+
+function banner() {
+    # Define the blue gradient escape codes
+    BLUE_GRADIENT="\033[38;5;27m"
+    MID_BLUE_GRADIENT="\033[38;5;33m"
+    END_BLUE_GRADIENT="\033[38;5;39m"
+    H_END_BLUE_GRADIENT="\033[38;5;45m"
+
+    # Print the title with the blue gradient background
+    echo -e "\n${BLUE_GRADIENT}       ____  _${MID_BLUE_GRADIENT}___                     "
+    echo -e "${BLUE_GRADIENT}      / __ \/${MID_BLUE_GRADIENT} __/___ ${END_BLUE_GRADIENT} ___  _${H_END_BLUE_GRADIENT}___      "
+    echo -e "${BLUE_GRADIENT}     / / / /${MID_BLUE_GRADIENT} /_  __ ${END_BLUE_GRADIENT}\/ _ \/${H_END_BLUE_GRADIENT} __ \   "
+    echo -e "${BLUE_GRADIENT}    / /_/ /${MID_BLUE_GRADIENT} __/ /_/${END_BLUE_GRADIENT} /  __/${H_END_BLUE_GRADIENT} / / /      "
+    echo -e "${BLUE_GRADIENT}   /_____/${MID_BLUE_GRADIENT}_/  \__,${END_BLUE_GRADIENT} /\___/${H_END_BLUE_GRADIENT}_/ /_/ v$version"
+    echo -e "${BLUE_GRADIENT}         ${MID_BLUE_GRADIENT}    /___${END_BLUE_GRADIENT}_/                   "
+    echo -e "\n${BLUE_GRADIENT}        Doc${MID_BLUE_GRADIENT}kerfile ${END_BLUE_GRADIENT}Generator${H_END_BLUE_GRADIENT} by @ousbaailyas$RC\n"
+}
+
+# Function to display the script usage and options
+display_help() {
+
+    echo -e "Usage: $0 [OPTIONS]"
+    echo -e "Options:"
+    echo -e "  -b, --base       Set base image. e.g., ${GRAY}-b ubuntu:20.04${RC}"
+    echo -e "  -e, --env        Set environment variables. e.g., ${GRAY}-e VAR1=value1,VAR2=value2...${RC}"
+    echo -e "  -a, --arg        Set build arguments. e.g., ${GRAY}-a ARG1=value1,ARG2=value2...${RC}"
+    echo -e "  -l, --label      Set labels. e.g., ${GRAY}-l label1=value1,label2=value2...${RC}"
+    echo -e "  -p, --port       Expose ports. e.g., ${GRAY}-p 80,8080/tcp,9000/udp...${RC}"
+    echo -e "  -v, --volume     Set volumes. e.g., ${GRAY}-v /app/data${RC}"
+    echo -e "  -u, --user       Set user. e.g., ${GRAY}-u appuser:appgroup${RC} or ${GRAY}-u 1000:1000${RC}"
+    echo -e "  -w, --workdir    Set working directory. e.g., ${GRAY}-w /app${RC}"
+    echo -e "  -n, --entry      Set entrypoint. e.g., ${GRAY}-n /app/start.sh${RC}"
+    echo -e "  -H, --health     Set healthcheck command. e.g., ${GRAY}-H 'CMD curl -f http://localhost/ || exit 1'${RC}"
+    echo -e "                   Healthcheck options: ${GRAY}--interval, ${GRAY}--timeout${RC}, ${GRAY}--start-period${RC}, ${GRAY}--start-interval${RC}, ${GRAY}--retries${RC}"
+    echo -e "  -r, --run        Run commands. e.g., ${GRAY}-r 'echo hello' -r 'apt-get update'${RC}"
+    echo -e "  -c, --copy       Set copy instruction. e.g., ${GRAY}-c 'src/*.txt' /dest/${RC}"
+    echo -e "  -A, --add        Set add instruction. e.g., ${GRAY}-d 'src/*.txt' /dest/${RC}"
+    echo -e "  -s, --shell      Set shell instruction. e.g., ${GRAY}-s /bin/bash -s /bin/sh${RC}"
+    echo -e "  -S, --stopsig    Set stop signal. e.g., ${GRAY}-S SIGTERM${RC}"
+    echo -e "  -o               Set new Docker image name and build it. e.g., ${GRAY}-o myimage:latest${RC}"
+    echo -e "  -h, --help       Display this help message."
+    echo -e "  -v, --version    Display Dfgen version."
+    # Mentioning that using the script without any option will show a menu of Dockerfile instructions
+    echo
+    echo -e "NOTE: Runing the script with no options will prompt a menu of Dockerfile instructions to choose from."
+
+    # Additional references
+    echo -e "\nAdditional References:"
+    echo -e "  - Docker Documentation: ${GRAY}https://docs.docker.com/${RC}"
+    echo -e "  - Dockerfile Best Practices: ${GRAY}https://docs.docker.com/develop/develop-images/dockerfile_best-practices/${RC}"
+    echo -e "  - Docker Health Check: ${GRAY}https://docs.docker.com/engine/reference/builder/#healthcheck${RC}"
+}
+
+function env_var_format_validator() {
+    IFS=',' read -ra env_vars <<< "$1"
+    for format in "${env_vars[@]}"; do
+        [[ ! "$format" =~ ^[a-zA-Z_][a-zA-Z0-9_]*=.*$ ]] && print_message "FAIL" "Invalid environment variable format: '$format'" && exit 1
+    done
+}
+
+function arg_format_validator() {
+    local regex='^([^=]+=[^=]+|[^=]+|[^=]+=\"[^\"]+\")$'
+    IFS=',' read -ra args <<< "$1"
+    for format in "${args[@]}"; do
+        [[ ! "$format" =~ $regex ]] && print_message "FAIL" "Invalid argument format: '$format'" && exit 1
+    done
+}
+
+function label_format_validator() {
+    IFS=',' read -ra labels <<< "$1"
+    for format in "${labels[@]}"; do
+        [[ ! "$format" =~ [a-zA-Z_][a-zA-Z0-9_]*=.*$ ]] && print_message "FAIL" "Invalid label format: '$format'" && exit 1 
+    done
+}
+
+function ports_format_validator() {
+    IFS=',' read -ra port_numbers <<< "$1"
+    for format in "${port_numbers[@]}"; do
+        [[ ! $format =~ ^[0-9]+(/(tcp|udp))?$ || (${format%/*} -lt 1 || ${format%/*} -gt 65535) ]] && print_message "FAIL" "Invalid port format: '$format'" && exit 1
+    done
+}
+
+function entrypoint_format_validator() {
+    local format="$1"
+    [[ ! "$format" =~ ^(\.\/)?([^[:space:]]+(\\ |\/[^[:space:]]+)?)*[^[:space:]]+$ ]] && echo "FAIL" "Invalid entrypoint format: '$format'" && exit 1
+}
+
+function user_format_validator() {
+    local format="$1"
+    [[ ! "$format" =~ ^([a-zA-Z_][a-zA-Z0-9_]*(:[a-zA-Z_][a-zA-Z0-9_]*)?|[0-9]+(:[0-9]+)?)$ ]] && print_message "FAIL" "Invalid user format: '$format'" && exit 1
+}
+
+function volume_format_validator() {
+    local format="$1"
+    [[ ! "$format" =~ ^(\.\/)?([^[:space:]]+\/)*[^[:space:]]+$ ]] && print_message "FAIL" "Invalid volume format: '$format'" && exit 1
+}
+
+function workdir_format_validator() {
+    local format="$1"
+    [[ ! "$format" =~ ^(\.\/)?([^[:space:]]+\/)*[^[:space:]]+$ ]] && print_message "FAIL" "Invalid workdir format: '$format'" && exit 1
+}
+
+function stopsig_format_validator() {
+    local format="$1"
+    [[ ! "$format" =~ ^(SIG[A-Z]+|[0-9]+)$ ]] && print_message "FAIL" "Invalid stopsig format: '$format'" && exit 1
+}
+
+function copy_format_validator() {
+    local format="$1"
+    local regex='^((--chown=[a-zA-Z_][a-zA-Z0-9_]*:[a-zA-Z_][a-zA-Z0-9_]*|--chmod=[0-7]{3}) )?(([^[:space:]]+ )+[^[:space:]]+|("[^"]+"( )?)+)$'
+    [[ ! "$format" =~ $regex ]] && print_message "FAIL" "Invalid copy format: '$format'" && exit 1
+}
+
+function add_format_validator() {
+    local format="$1"
+    local regex='^((--chown=[a-zA-Z_][a-zA-Z0-9_]*:[a-zA-Z_][a-zA-Z0-9_]*|--chmod=[0-7]{3}|--checksum=[a-fA-F0-9]+) )?(([^[:space:]]+ )+[^[:space:]]+|("[^"]+"( )?)+)$'
+    [[ ! "$format" =~ $regex ]] && print_message "FAIL" "Invalid add format: '$format'" && exit 1
+}
+
+function image_format_validator() {
+    local format="$1"
+    [[ ! "$format" =~ ^[a-zA-Z0-9]+([._-][a-zA-Z0-9]+)*(/[a-zA-Z0-9]+([._-][a-zA-Z0-9]+)*)?(:[a-zA-Z0-9]+([._-][a-zA-Z0-9]+)*)?$ || ${#format} -gt 256 ]] && print_message "FAIL" "Invalid image format: '$format'" && exit 1
+}
+
+# Functions for validation
+validate_duration() {
+    [[ ! "$1" =~ ^[0-9]+[smh]$ ]] && print_message "FAIL" "Invalid duration format '$1' for '$2'." && exit 1
+}
+
+validate_retries() {
+    [[ ! "$1" =~ ^[0-9]+$ ]] && print_message "FAIL" "Invalid retries value '$1' for '$2'." && exit 1
+}
+
+sanitize_image_file() {
+    local output_image=$1
+    local dockerfile="$2"
+
+    # Ensure output_image is provided
+    if [ -z "$output_image" ]; then
+        print_message "WARN" "Output image not provided."
+        print_message "INFO" "A Dockerfile has been created: ./Dockerfile"
+        exit 0
+    fi
+
+    # Sanitize output_image for use as a filename
+    local outimagefile=$(echo "$output_image" | tr '/' '.' | tr ':' '_')
+
+    # Check if outimagefile.Dockerfile already exists and remove it
+    if [ -f "${outimagefile}.Dockerfile" ]; then
+        print_message "INFO" "An existing file '${outimagefile}.Dockerfile' has been found."
+        print_message "QUET" "Overwrit it?. The file content will be lost (yes/no): " rm_outimagefile
+        if [[ $rm_outimagefile =~ ^[yY](es)?$ ]]; then
+            cat "$dockerfile" > "${outimagefile}.Dockerfile"
+            print_message "WARN" "The existing file '${outimagefile}.Dockerfile' has been overwriten."
+        else
+            outimagefile="$outimagefile.$(openssl rand -base64 6 | tr '\\/\+.' '[a-zA-Z0-9]')"
+            cat "$dockerfile" > "${outimagefile}.Dockerfile"
+            print_message "INFO" "Dockerfile for new image created: ${outimagefile}.Dockerfile"
+        fi
+    else
+        cat "$dockerfile" > "${outimagefile}.Dockerfile"
+        print_message "INFO" "Dockerfile for new image created: ${outimagefile}.Dockerfile"
+    fi
+}
+
+# Function to build Docker image using provided Dockerfile
+build_docker_image() {
+    local output_image="$1"
+    local dockerfile="$2"
+
+    # Check if 'docker' command is available
+    if ! command -v docker &> /dev/null; then
+        print_message "FAIL" "Docker is not installed. Please install Docker and try again."
+        exit 1
+    fi
+
+    # Execute the Docker build command using the generated Dockerfile
+    if docker build -t "$output_image" --no-cache --progress=plain . 2>&1 | tee build.log; then
+        # Check if the build.log contains any error messages
+        if grep -q 'ERROR:' build.log; then
+            print_message "FAIL" "Docker image build failed. Check the build log for details."
+            print_message "INFO" "Path to Docker build log file: ./build.log"
+        else
+            print_message "SUCC" "Docker image built successfully."
+        fi
+    else
+        exit_code=$?
+        if [ "$exit_code" -eq 130 ]; then
+            print_message "INFO" "$USER quit the build process."
+        else
+            print_message "FAIL" "Docker image build failed with exit code $exit_code."
+        fi
+    fi
+}
+
+build_dockerfile() {
+    local dockerfile="Dockerfile" exec_build="false" base_image output_image env_vars args port_numbers run_commands
+    local dockerfile_bkup="Dockerfile_$(date +"%Y%m%d%H%M%S")"
+    local entrypoint_value healthcheck_cmd iDURATION="30s" tDURATION="30s" spDURATION="0s" siDURATION="5s" rDURATION="3"
+    local labels user_value volume_value workdir_value stopsig_value copy_value add_value shell_value
+    banner
+    if [ -f "$dockerfile" ]; then
+        print_message "WARN" "Dockerfile already exists. Taking action to preserve it."
+        mv "$dockerfile" "$dockerfile_bkup"
+        print_message "INFO" "Backup created: $dockerfile_bkup"
+    fi 
+    if [ "$#" -gt 0 ]; then
+        while [[ $# -gt 0 ]]; do
+            case $1 in
+                -b|--base)
+                    base_image="$2"
+                    if [ -n "$base_image" ]; then
+                        image_format_validator "$2"
+                        echo -e "FROM $base_image" >> "$dockerfile"
+                        print_message "INFO" "Base image set to '$base_image'."
+                    fi
+                    shift 2
+                    ;;
+
+                -o)
+                    output_image="$2"
+                    if [ -n "$output_image" ]; then
+                        image_format_validator "$2"
+                        print_message "INFO" "Docker new image set to '$output_image'."
+                    fi
+                    shift 2
+                    ;;
+
+                -r|--run)
+                    IFS=',' read -ra run_commands <<< "$2"
+                        echo "RUN ${run_commands[0]}" >> "$dockerfile"
+                        unset run_commands[0]
+                        for run in "${run_commands[@]}"; do  echo -e "\t$run" >> "$dockerfile"; done
+                        print_message "INFO" "Run commands added"
+                    shift 2
+                    ;;
+
+                -e|--env)
+                    env_var_format_validator "$2"
+                    if [ ${#env_vars[@]} -gt 0 ]; then
+                        echo -e "ENV ${env_vars[@]}" >> "$dockerfile"
+                        print_message "INFO" "Environment variables set"
+                    fi
+                    shift 2
+                    ;;
+
+                -a|--arg)
+                    arg_format_validator "$2"
+                    if [ ${#args[@]} -gt 0 ]; then
+                        for arg in "${args[@]}"; do
+                            echo -e "ARG $arg" >> "$dockerfile"
+                        done
+                        print_message "INFO" "Build arguments set"
+                    fi
+                    shift 2
+                    ;;
+
+                -p|--port)
+                    ports_format_validator "$2"
+                    if [ ${#port_numbers[@]} -gt 0 ]; then
+                        printf "EXPOSE %s\n" "${port_numbers[@]}" >> "$dockerfile"
+                        print_message "INFO" "Ports exposed: $(IFS=','; echo "${port_numbers[*]}")"
+                    fi
+                    shift 2
+                    ;;
+
+                -n|--entry)
+                    entrypoint_format_validator "$2"
+                    if [ -n "$entrypoint_value" ]; then
+                        echo -e "ENTRYPOINT $entrypoint_value" >> "$dockerfile"
+                        print_message "INFO" "Entrypoint set to '$entrypoint_value'"
+                    fi
+                    shift 2
+                    ;;
+
+                -H|--health)
+                    healthcheck_cmd="$2"
+                    if [ -n "$healthcheck_cmd" ]; then
+                        printf "HEALTHCHECK --interval=$iDURATION --timeout=$tDURATION --start-period=$spDURATION --start-interval=$siDURATION --retries=$rDURATION \  \nCMD   $healthcheck_cmd" >> "$dockerfile"
+                        print_message "INFO" "Healthcheck configured"
+                    fi
+                    shift
+                    ;;
+
+                    # Additional options for HEALTHCHECK parameters
+                --interval=*)
+                    validate_duration "${1#*=}" "$1"; iDURATION="${1#*=}"; shift
+                    ;;
+                --timeout=*)
+                    validate_duration "${1#*=}" "$1"; tDURATION="${1#*=}"; shift
+                    ;;
+                --start-period=*)
+                    validate_duration "${1#*=}" "$1"; spDURATION="${1#*=}"; shift
+                    ;;
+                --start-interval=*)
+                    validate_duration "${1#*=}" "$1"; siDURATION="${1#*=}"; shift
+                    ;;
+                --retries=*)
+                    validate_retries "${1#*=}" "$1"; rDURATION="${1#*=}"; shift
+                    ;;
+
+                -l|--label)
+                    label_format_validator "$2"
+                    if [ ${#labels[@]} -gt 0 ]; then
+                        echo -e "LABEL ${labels[@]}" >> "$dockerfile"
+                        print_message "INFO" "${#labels[@]} label(s) set"
+                    fi
+                    shift 2
+                    ;;
+
+                -u|--user)
+                    user_value="$2"
+                    if [ -n "$user_value" ]; then
+                        user_format_validator "$2"
+                        echo -e "USER $user_value" >> "$dockerfile"
+                        print_message "INFO" "User set to '$user_value'"
+                    fi
+                    shift 2
+                    ;;
+
+                -V|--volume)
+                    volume_value="$2"
+                    if [ -n "$volume_value" ]; then
+                        volume_format_validator "$2"
+                        echo -e "VOLUME $volume_value" >> "$dockerfile"
+                        print_message "INFO" "Volume set to '$volume_value'"
+                    fi
+                    shift 2
+                    ;;
+
+                -w|--workdir)
+                    workdir_value="$2"
+                    if [ -n "$workdir_value" ]; then
+                        workdir_format_validator "$2"
+                        echo -e "WORKDIR $workdir_value" >> "$dockerfile"
+                        print_message "INFO" "Working directory set to '$workdir_value'"
+                    fi
+                    shift 2
+                    ;;
+
+                -S|--stopsig)
+                    stopsig_value="$2"
+                    if [ -n "$stopsig_value" ]; then
+                        stopsig_format_validator "$2"
+                        echo -e "STOPSIGNAL $stopsig_value" >> "$dockerfile"
+                        print_message "INFO" "Stop signal set to '$stopsig_value'"
+                    fi
+                    shift 2
+                    ;;
+
+                -c|--copy)
+                    copy_value="$2"
+                    if [ -n "$copy_value" ]; then
+                        copy_format_validator "$2"
+                        echo -e "COPY $copy_value" >> "$dockerfile"
+                        print_message "INFO" "Copy instruction set to '$copy_value'"
+                    fi
+                    shift 2
+                    ;;
+
+                -A|--add)
+                    add_value="$2"
+                    if [ -n "$add_value" ]; then
+                        add_format_validator "$2"
+                        echo -e "ADD $add_value" >> "$dockerfile"
+                        print_message "INFO" "Add instruction added"
+                    fi
+                    shift 2
+                    ;;
+
+                -s|--shell)
+                    IFS=' ' read -ra shell_value <<< "$2"
+                    if [ ${#shell_value[@]} -gt 0 ]; then
+                        shell_value=$(printf "\"%s\", " "${shell_value[@]}" | sed 's/, $//')
+                        echo -e "SHELL [$shell_value]" >> "$dockerfile"
+                        print_message "INFO" "Shell instruction added"
+                    fi
+                    shift 2
+                    ;;
+
+                -x|--exec)
+                    exec_build=true
+                    print_message "INFO" "Build process will be executed"
+                    shift
+                    ;;
+
+                -h|--help)
+                    display_help
+                    exit 0
+                    ;;
+
+                -v|--version)
+                    echo "Dfgen $version"
+                    exit 0
+                    ;;
+
+                *)
+                    print_message "FAIL" "Invalid option: $1" >&2
+                    display_help
+                    exit 1
+                    ;;
+            esac
+        done
+
+    else
+        PS3=$'\n'"Select instructions to include (1 to 17, 18 to quit): "
+        options=("Base Image" "Output Image" "Run Commands" "Environment Variables" "Arguments" "Ports" "Entrypoint" "Healthcheck" "Labels" "User" "Volume" "Workdir" "Stopsignal" "Copy" "Add" "Shell" "Execute" "Quit")
+
+        while true; do
+            echo
+            select opt in "${options[@]}"; do
+                case $opt in
+                    "Base Image")
+                        echo
+                        print_message "QUET" "Enter base image: " base_image
+                        image_format_validator "$base_image"
+                        echo -e "FROM $base_image" >> "$dockerfile"
+                        print_message "INFO" "Base image set to '$base_image'"
+                        break
+                        ;;
+
+                    "Output Image")
+                        echo
+                        print_message "QUET" "Enter output image: " output_image
+                        image_format_validator "$output_image"
+                        print_message "INFO" "New Docker image set to '$output_image'"
+                        break
+                        ;;
+
+                    "Run Commands")
+                        echo
+                        print_message "QUET" "Enter your commands (comma-separated): " run_input
+                        IFS=',' read -ra run_commands <<< "$run_input"
+                        echo "RUN ${run_commands[0]}" >> "$dockerfile"
+                        unset run_commands[0]
+                        for run in "${run_commands[@]}"; do  echo -e "\t$run" >> "$dockerfile"; done
+                        print_message "INFO" "Run commands added"
+                        break
+                        ;;
+
+                    "Environment Variables")
+                        echo
+                        print_message "QUET" "Enter environment variables (comma-separated): " env_var_input
+                        env_var_format_validator "$env_var_input"
+                        echo -e "ENV ${env_vars[@]}" >> "$dockerfile"
+                        print_message "INFO" "Environment variables set"
+                        break
+                        ;;
+
+                    "Arguments")
+                        echo
+                        print_message "QUET" "Enter arg(s) (comma-separated): " args_input
+                        arg_format_validator "$args_input"
+                        for arg in  ${args[@]}; do
+                            echo -e "ARG $arg" >> "$dockerfile"
+                        done
+                        print_message "INFO" "Build arguments set"
+                        break
+                        ;;
+
+                    "Ports")
+                        echo
+                        print_message "QUET" "Enter ports to expose (comma-separated): " port_input
+                        ports_format_validator "$port_input"
+                        printf "EXPOSE %s\n" "${port_numbers[@]}" >> "$dockerfile"
+                        print_message "INFO" "Ports exposed: $(IFS=','; echo "${port_numbers[*]}")"
+                        break
+                        ;;
+
+                    "Entrypoint")
+                        echo
+                        print_message "QUET" "Enter entrypoint: " entrypoint_value
+                        entrypoint_format_validator "$entrypoint_value"
+                        echo -e "ENTRYPOINT $entrypoint_value" >> "$dockerfile"
+                        print_message "INFO" "Entrypoint set to '$entrypoint_value'"
+                        break
+                        ;;
+
+                    "Healthcheck")
+                        echo
+                        print_message "QUET" "Enter HEALTHCHECK command: " healthcheck_cmd
+                        print_message "QUET" "Do you want to provide HEALTHCHECK parameters? (y/n): " provide_defaults
+                        [ "$provide_defaults" = "y" ] && {
+                            print_message "QUET" "Enter interval for HEALTHCHECK (default: 30s): " iDURATION
+                            iDURATION="${iDURATION:-30s}"
+                            print_message "QUET" "Enter timeout for HEALTHCHECK (default: 30s): " tDURATION
+                            tDURATION="${tDURATION:-30s}"
+                            print_message "QUET" "Enter start-period for HEALTHCHECK (default: 0s): " spDURATION
+                            spDURATION="${spDURATION:-0s}"
+                            print_message "QUET" "Enter start-interval for HEALTHCHECK (default: 5s): " siDURATION
+                            siDURATION="${siDURATION:-5s}"
+                            print_message "QUET" "Enter retries for HEALTHCHECK (default: 3): " rDURATION
+                            rDURATION="${rDURATION:-3}"
+                        } || iDURATION="30s" tDURATION="30s" spDURATION="0s" siDURATION="5s" rDURATION="3"
+                        echo -e "HEALTHCHECK --interval=$iDURATION --timeout=$tDURATION --start-period=$spDURATION --start-interval=$siDURATION --retries=$rDURATION $healthcheck_cmd" >> "$dockerfile"
+                        print_message "INFO" "Healthcheck configured"
+                        break
+                        ;;
+
+                    "Labels")
+                        echo
+                        print_message "QUET" "Enter labels (comma-separated): " labels_input
+                        label_format_validator "$labels_input"
+                        echo -e "LABEL ${labels[@]}" >> "$dockerfile"
+                        print_message "INFO" "${#labels[@]} label(s) set"
+                        break
+                        ;;
+
+                    "User")
+                        echo
+                        print_message "QUET" "Enter USER instruction: " user_value
+                        user_format_validator "$user_value"
+                        echo -e "USER $user_value" >> "$dockerfile"
+                        print_message "INFO" "User set to '$user_value'"
+                        break
+                        ;;
+
+                    "Volume")
+                        echo
+                        print_message "QUET" "Enter VOLUME instruction: " volume_value
+                        volume_format_validator "$volume_value"
+                        echo -e "VOLUME $volume_value" >> "$dockerfile"
+                        print_message "INFO" "Volume set to '$volume_value'"
+                        break
+                        ;;
+
+                    "Workdir")
+                        echo
+                        print_message "QUET" "Enter WORKDIR instruction: " workdir_value
+                        workdir_format_validator "$workdir_value"
+                        echo -e "WORKDIR $workdir_value" >> "$dockerfile"
+                        print_message "INFO" "Working directory set to '$workdir_value'"
+                        break
+                        ;;
+
+                    "Stopsignal")
+                        echo
+                        print_message "QUET" "Enter STOPSIGNAL instruction: " stopsig_value
+                        stopsig_format_validator "$stopsig_value"
+                        echo -e "STOPSIGNAL $stopsig_value" >> "$dockerfile"
+                        print_message "INFO" "Stop signal set"
+                        break
+                        ;;
+
+                    "Copy")
+                        echo
+                        print_message "QUET" "Enter COPY instruction: " copy_value
+                        copy_format_validator "$copy_value"
+                        echo -e "COPY $copy_value" >> "$dockerfile"
+                        print_message "INFO" "Copy instruction set to '$copy_value'"
+                        break
+                        ;;
+
+                    "Add")
+                        echo
+                        print_message "QUET" "Enter ADD instruction: " add_value
+                        add_format_validator "$add_value"
+                        echo -e "ADD $add_value" >> "$dockerfile"
+                        print_message "INFO" "Add instruction set"
+                        break
+                        ;;
+
+                    "Shell")
+                        echo
+                        print_message "QUET" "Enter SHELL instruction: " add_shell
+                        IFS=' ' read -ra shell_value <<< "$add_shell"
+                        [ ${#shell_value[@]} -gt 0 ] && shell_value=$(printf "\"%s\", " "${shell_value[@]}" | sed 's/, $//')
+                        echo -e "SHELL [$shell_value]" >> "$dockerfile"
+                        print_message "INFO" "Shell instruction added"
+                        break
+                        ;;
+
+                    "Execute")
+                        echo
+                        exec_build=true
+                        exit 0
+                        if [ -n "$base_image" ]; then 
+                            print_message "INFO" "Build process will be executed\n"
+                            
+                            sanitize_image_file "$output_image" "$dockerfile"
+
+                            [ "$exec_build" = true ] && { [ -n "$output_image" ] && build_docker_image "$output_image" "$outimagefile" && rm -f "$dockerfile"; } || { [ "$exec_build" = false ] && rm -f "$dockerfile" || print_message "FAIL" "Output image is required for the build process."; }
+
+                        else
+                            print_message "FAIL" "Build process requires at least the base image."; display_help; exit 0
+                        fi
+                        ;;
+
+                    "Quit")
+                        echo
+                        print_message "INFO" "Exiting."
+                        exit 0
+                        ;;
+
+                    *)
+                        print_message "FAIL" "Invalid option. Try again.\n"
+                        break
+                        ;;
+                esac
+            done
+        done
+    fi
+
+    sanitize_image_file "$output_image" "$dockerfile"
+
+    [ "$exec_build" = true ] && { [ -n "$output_image" ] && build_docker_image "$output_image" "$outimagefile" && rm -f "$dockerfile"; } || { [ "$exec_build" = false ] && rm -f "$dockerfile" || print_message "FAIL" "Output image is required for the build process."; }
+
+}
+
+# Run the function to build the Dockerfile
+build_dockerfile "$@"
