@@ -1,6 +1,6 @@
 # Dfgen - Dockerfile Generator
 
-![Dfgen Logo](dfgen-logo.png)
+![Dfgen Logo](dfgen_scsh.png)
 
 **Dockerfile Generator by @ousbaailyas**
 
