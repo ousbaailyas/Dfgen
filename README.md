@@ -15,7 +15,7 @@ Dfgen is a powerful Dockerfile generator tool that simplifies the process of cre
 - **Build Arguments:** Define build arguments with the `-a` or `--arg` option.
 - **Labels:** Add labels to your Docker image using the `-l` or `--label` option.
 - **Exposed Ports:** Expose ports with the `-p` or `--port` option.
-- **Volumes:** Set volumes using the `-v` or `--volume` option.
+- **Volumes:** Set volumes using the `-V` or `--volume` option.
 - **User:** Define the user and group with the `-u` or `--user` option.
 - **Working Directory:** Set the working directory using the `-w` or `--workdir` option.
 - **Entrypoint:** Specify the entrypoint with the `-n` or `--entry` option.
@@ -42,7 +42,7 @@ For detailed information about each option, run:
 ## Examples
 
 ```bash
-./Dfgen -b ubuntu:20.04 -e VAR1=value1,VAR2=value2 -p 80,8080/tcp -v /app/data -u appuser:appgroup -w /app -n /app/start.sh
+./Dfgen -b ubuntu:20.04 -e VAR1=value1,VAR2=value2 -p 80,8080/tcp -V /app/data -u appuser:appgroup -w /app -n /app/start.sh
 ```
 
 ## Dockerfile Instructions Menu
