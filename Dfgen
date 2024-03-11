@@ -57,7 +57,7 @@ display_help() {
     echo -e "  -a, --arg        Set build arguments. e.g., ${GRAY}-a ARG1=value1,ARG2=value2...${RC}"
     echo -e "  -l, --label      Set labels. e.g., ${GRAY}-l label1=value1,label2=value2...${RC}"
     echo -e "  -p, --port       Expose ports. e.g., ${GRAY}-p 80,8080/tcp,9000/udp...${RC}"
-    echo -e "  -v, --volume     Set volumes. e.g., ${GRAY}-v /app/data${RC}"
+    echo -e "  -V, --volume     Set volumes. e.g., ${GRAY}-v /app/data${RC}"
     echo -e "  -u, --user       Set user. e.g., ${GRAY}-u appuser:appgroup${RC} or ${GRAY}-u 1000:1000${RC}"
     echo -e "  -w, --workdir    Set working directory. e.g., ${GRAY}-w /app${RC}"
     echo -e "  -n, --entry      Set entrypoint. e.g., ${GRAY}-n /app/start.sh${RC}"
